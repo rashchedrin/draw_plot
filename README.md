@@ -149,6 +149,27 @@ To add new plot object types:
 4. Create property panel UI for the object type
 5. Add tool button and event handlers
 
+### Development and Debugging
+
+#### Object Selection Debug Mode
+The editor uses a color-coded picking canvas for accurate object selection. To debug selection issues, you can visualize this picking canvas:
+
+```javascript
+// Show the picking canvas overlay (in browser console)
+plotEditor.showPickingCanvas(true);
+
+// Hide the picking canvas overlay
+plotEditor.showPickingCanvas(false);
+```
+
+The picking canvas shows:
+- **Bounding boxes** (first pass) - filled rectangles/circles for selectable areas
+- **Objects** (second pass) - actual object shapes drawn on top
+- **Unique colors** - each object gets a unique RGB color mapped to its ID
+- **Z-index ordering** - objects drawn in correct layer order
+
+This visualization helps debug selection accuracy, especially for rotated text and overlapping objects.
+
 ## License
 
 This project is open source and available under the MIT License.

@@ -194,6 +194,33 @@ class PlotEditor {
         this.canvas = canvas_element;
         this.context = canvas_element.getContext('2d');
         
+        // Create invisible picking canvas for accurate selection
+        this.picking_canvas = document.createElement('canvas');
+        this.picking_canvas.width = canvas_element.width;
+        this.picking_canvas.height = canvas_element.height;
+        this.picking_context = this.picking_canvas.getContext('2d');
+        
+        // Disable ALL forms of antialiasing for exact color matching
+        this.picking_context.imageSmoothingEnabled = false;
+        this.picking_context.webkitImageSmoothingEnabled = false;
+        this.picking_context.mozImageSmoothingEnabled = false;
+        this.picking_context.msImageSmoothingEnabled = false;
+        this.picking_context.oImageSmoothingEnabled = false;
+        
+        if (this.picking_context.textRenderingOptimization) {
+            this.picking_context.textRenderingOptimization = 'optimizeSpeed';
+        }
+        if (this.picking_context.textRendering) {
+            this.picking_context.textRendering = 'optimizeSpeed';
+        }
+        
+        this.picking_context.font = '10px monospace'; // Use monospace for consistent rendering
+        
+        // Color mapping for object picking
+        this.object_color_map = new Map(); // color -> object_id
+        this.id_color_map = new Map(); // object_id -> color
+        this.next_color_id = 1;
+        
         // Plot bounds and coordinate system
         this.plot_bounds = {
             x_min: -10,
@@ -564,6 +591,171 @@ class PlotEditor {
     }
     
     /**
+     * Get or create a unique color for an object ID
+     * @param {string} object_id - Object ID
+     * @returns {string} RGB color string
+     */
+    getObjectColor(object_id) {
+        if (this.id_color_map.has(object_id)) {
+            return this.id_color_map.get(object_id);
+        }
+        
+        // Generate unique color with collision detection
+        let color = this.generateUniqueColor(object_id);
+        let collision_attempts = 0;
+        const max_attempts = 1000; // Prevent infinite loops
+        
+        // Keep trying until we get a unique color that's not a background color
+        while ((this.object_color_map.has(color) || this.isBackgroundColor(color)) && collision_attempts < max_attempts) {
+            collision_attempts++;
+            if (this.isBackgroundColor(color)) {
+                console.warn(`Background color avoided for object ${object_id}. Attempt ${collision_attempts} to resolve.`);
+            } else {
+                console.warn(`Color collision detected for object ${object_id}. Attempt ${collision_attempts} to resolve.`);
+            }
+            color = this.generateUniqueColor(object_id, collision_attempts);
+        }
+        
+        if (collision_attempts >= max_attempts) {
+            console.error(`Failed to resolve color collision for object ${object_id} after ${max_attempts} attempts.`);
+            // Fallback to sequential color generation
+            color = this.generateSequentialColor();
+        }
+        
+        // Store the mapping
+        this.id_color_map.set(object_id, color);
+        this.object_color_map.set(color, object_id);
+        
+        if (collision_attempts > 0) {
+            console.log(`Resolved color collision for object ${object_id} with color ${color} after ${collision_attempts} attempts.`);
+        }
+        
+        return color;
+    }
+    
+    /**
+     * Generate a unique high-contrast color
+     * @param {string} object_id - Object ID for seeding
+     * @param {number} salt - Additional salt for collision resolution
+     * @returns {string} RGB color string
+     */
+    generateUniqueColor(object_id, salt = 0) {
+        // Use a hash function based on object ID and salt for deterministic but varied colors
+        let hash = salt * 31; // Start with salt
+        for (let i = 0; i < object_id.length; i++) {
+            hash = ((hash << 5) - hash + object_id.charCodeAt(i)) & 0xffffffff;
+        }
+        hash = Math.abs(hash);
+        
+        // Generate high-contrast RGB values with different multipliers
+        const r = ((hash * 73 + salt * 17) % 256);
+        const g = ((hash * 151 + salt * 37) % 256);  
+        const b = ((hash * 233 + salt * 59) % 256);
+        
+        // Ensure minimum contrast by avoiding mid-range values
+        const enhance_contrast = (value) => {
+            if (value < 85) return Math.max(0, value - 30);
+            if (value > 170) return Math.min(255, value + 30);
+            return value < 128 ? 30 : 225; // Force to dark or light
+        };
+        
+        const final_r = enhance_contrast(r);
+        const final_g = enhance_contrast(g);
+        const final_b = enhance_contrast(b);
+        
+        return `rgb(${final_r},${final_g},${final_b})`;
+    }
+    
+    /**
+     * Generate sequential color as fallback for collision resolution
+     * @returns {string} RGB color string
+     */
+    generateSequentialColor() {
+        const color_id = this.next_color_id++;
+        
+        // Use bit manipulation to ensure unique colors
+        const r = (color_id & 0xFF);
+        const g = ((color_id >> 8) & 0xFF);
+        const b = ((color_id >> 16) & 0xFF);
+        
+        return `rgb(${r},${g},${b})`;
+    }
+    
+    /**
+     * Get object ID from picking canvas color
+     * @param {number} x - Canvas X coordinate
+     * @param {number} y - Canvas Y coordinate
+     * @returns {string|null} Object ID or null if no object
+     */
+    getObjectIdFromPicking(x, y) {
+        const pixel_data = this.picking_context.getImageData(x, y, 1, 1).data;
+        const color = `rgb(${pixel_data[0]},${pixel_data[1]},${pixel_data[2]})`;
+        
+        // Check if it's background color (transparent/white/black)
+        if (this.isBackgroundColor(color)) {
+            return null; // Background clicked, no object
+        }
+        
+        const object_id = this.object_color_map.get(color);
+        
+        if (!object_id) {
+            // Color doesn't match any known object - this shouldn't happen
+            // console.error(`Invalid picking color detected: ${color} at coordinates (${x}, ${y}). This color is not mapped to any object.`);
+            // console.error('Available object colors:', Array.from(this.object_color_map.keys()));
+            return null;
+        }
+        
+        return object_id;
+    }
+    
+    /**
+     * Check if a color is considered background
+     * @param {string} color - RGB color string
+     * @returns {boolean} True if background color
+     */
+    isBackgroundColor(color) {
+        const background_colors = [
+            'rgb(0,0,0)',     // Black
+            'rgb(255,255,255)', // White
+            'rgb(240,240,240)', // Light gray (common canvas background)
+            'rgb(248,249,250)', // Very light gray
+        ];
+        return background_colors.includes(color);
+    }
+    
+    /**
+     * Debug function to show/hide picking canvas
+     * @param {boolean} show - Whether to show the picking canvas
+     * side-effects: Toggles picking canvas visibility for debugging
+     */
+    showPickingCanvas(show = true) {
+        if (show) {
+            // Get the canvas position relative to the viewport
+            const canvas_rect = this.canvas.getBoundingClientRect();
+            
+            // Position picking canvas over the main canvas
+            this.picking_canvas.style.position = 'fixed';
+            this.picking_canvas.style.left = canvas_rect.left + 'px';
+            this.picking_canvas.style.top = canvas_rect.top + 'px';
+            this.picking_canvas.style.width = canvas_rect.width + 'px';
+            this.picking_canvas.style.height = canvas_rect.height + 'px';
+            this.picking_canvas.style.zIndex = '1000';
+            this.picking_canvas.style.border = '2px solid red';
+            this.picking_canvas.style.opacity = '0.7';
+            this.picking_canvas.style.pointerEvents = 'none'; // Allow clicks to pass through
+            this.picking_canvas.style.boxSizing = 'border-box';
+            
+            document.body.appendChild(this.picking_canvas);
+            console.log('Picking canvas is now visible overlaying the main canvas. Use plotEditor.showPickingCanvas(false) to hide.');
+        } else {
+            if (this.picking_canvas.parentNode) {
+                this.picking_canvas.parentNode.removeChild(this.picking_canvas);
+            }
+            console.log('Picking canvas hidden.');
+        }
+    }
+    
+    /**
      * Add a point to the plot
      * @param {Object} coords - Coordinates {x, y}
      * side-effects: Adds point object to plot_objects array
@@ -670,7 +862,7 @@ class PlotEditor {
         if (end_coords === null) {
             // Single click - create default brace
             const length = Math.sqrt(2 ** 2 + 3 ** 2); // Default brace length
-            const default_width = 15; // Default width set to 15
+            const default_elevation = 15; // Default elevation set to 15
             
             const brace_object = {
                 type: 'brace',
@@ -682,7 +874,7 @@ class PlotEditor {
                 color: '#333333',
                 mirrored: false,
                 style: 'smooth', // smooth or traditional
-                width: default_width,
+                elevation: default_elevation,
                 z_index: 0
             };
             const command = new AddObjectCommand(this, brace_object);
@@ -690,7 +882,7 @@ class PlotEditor {
         } else {
             // Two points - create brace between them
             const length = Math.sqrt((end_coords.x - start_coords.x) ** 2 + (end_coords.y - start_coords.y) ** 2);
-            const default_width = 15; // Default width set to 15
+            const default_elevation = 15; // Default elevation set to 15
             
             const brace_object = {
                 type: 'brace',
@@ -702,7 +894,7 @@ class PlotEditor {
                 color: '#333333',
                 mirrored: false,
                 style: 'smooth', // smooth or traditional
-                width: default_width,
+                elevation: default_elevation,
                 z_index: 0
             };
             const command = new AddObjectCommand(this, brace_object);
@@ -726,18 +918,17 @@ class PlotEditor {
      * @returns {Object|null} Object at coordinates or null
      */
     getObjectAt(coords) {
-        let closest_object = null;
-        let min_distance = Infinity;
+        // Convert plot coordinates to canvas coordinates
+        const canvas_coords = this.plotToCanvas(coords.x, coords.y);
         
-        for (const obj of this.plot_objects) {
-            const distance = this.getDistanceToObject(obj, coords);
-            if (distance < min_distance && distance < 0.5) { // 0.5 plot units threshold
-                min_distance = distance;
-                closest_object = obj;
-            }
+        // Get object ID from picking canvas
+        const object_id = this.getObjectIdFromPicking(canvas_coords.x, canvas_coords.y);
+        
+        if (object_id) {
+            return this.plot_objects.find(obj => obj.id === object_id) || null;
         }
         
-        return closest_object;
+        return null;
     }
     
     /**
@@ -755,7 +946,7 @@ class PlotEditor {
             case 'area':
                 return this.distanceToRectangle(coords, obj);
             case 'text':
-                return Math.sqrt(Math.pow(obj.x - coords.x, 2) + Math.pow(obj.y - coords.y, 2));
+                return this.distanceToTextBBox(coords, obj);
             case 'brace':
                 return this.distanceToLine(coords, {x: obj.x1, y: obj.y1}, {x: obj.x2, y: obj.y2});
             default:
@@ -794,6 +985,70 @@ class PlotEditor {
     distanceToRectangle(point, rect) {
         const dx = Math.max(rect.x1 - point.x, 0, point.x - rect.x2);
         const dy = Math.max(rect.y1 - point.y, 0, point.y - rect.y2);
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+    
+    /**
+     * Calculate distance from point to text bounding box (considering rotation)
+     * @param {Object} point - Point coordinates {x, y}
+     * @param {Object} text_obj - Text object
+     * @returns {number} Distance to text bounding box (0 if inside)
+     */
+    distanceToTextBBox(point, text_obj) {
+        // Get text dimensions by measuring
+        this.context.save();
+        this.context.font = `${text_obj.font_size}px ${text_obj.font_family}`;
+        const text_metrics = this.context.measureText(text_obj.text);
+        const text_width = text_metrics.width;
+        const text_height = text_obj.font_size; // Approximate height
+        this.context.restore();
+        
+        // Convert to plot coordinates
+        const text_width_plot = text_width / (this.plot_width / (this.plot_bounds.x_max - this.plot_bounds.x_min));
+        const text_height_plot = text_height / (this.plot_height / (this.plot_bounds.y_max - this.plot_bounds.y_min));
+        
+        // Text anchor point
+        const text_x = text_obj.x;
+        const text_y = text_obj.y;
+        
+        // If no rotation, use simple rectangle check
+        if (!text_obj.rotation || text_obj.rotation === 0) {
+            // Simple bounding box (text extends to the right and up from anchor point)
+            const bbox = {
+                x1: text_x,
+                y1: text_y - text_height_plot,
+                x2: text_x + text_width_plot,
+                y2: text_y
+            };
+            
+            const dx = Math.max(bbox.x1 - point.x, 0, point.x - bbox.x2);
+            const dy = Math.max(bbox.y1 - point.y, 0, point.y - bbox.y2);
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        // For rotated text, transform the point to text's local coordinate system
+        const rotation_rad = (text_obj.rotation * Math.PI) / 180;
+        const cos_rot = Math.cos(-rotation_rad); // Negative because we're transforming point, not text
+        const sin_rot = Math.sin(-rotation_rad);
+        
+        // Translate point relative to text anchor
+        const rel_x = point.x - text_x;
+        const rel_y = point.y - text_y;
+        
+        // Rotate point to text's local coordinate system
+        const local_x = rel_x * cos_rot - rel_y * sin_rot;
+        const local_y = rel_x * sin_rot + rel_y * cos_rot;
+        
+        // Check against unrotated bounding box in local coordinates
+        const bbox = {
+            x1: 0,
+            y1: -text_height_plot,
+            x2: text_width_plot,
+            y2: 0
+        };
+        
+        const dx = Math.max(bbox.x1 - local_x, 0, local_x - bbox.x2);
+        const dy = Math.max(bbox.y1 - local_y, 0, local_y - bbox.y2);
         return Math.sqrt(dx * dx + dy * dy);
     }
     
@@ -1073,6 +1328,369 @@ class PlotEditor {
         if (this.selected_object) {
             this.highlightObject(this.selected_object);
         }
+        
+        // Update picking canvas
+        this.renderPickingCanvas();
+    }
+    
+    /**
+     * Completely disable antialiasing on picking context
+     * side-effects: Sets all antialiasing properties to false/optimizeSpeed
+     */
+    disablePickingAntialiasing() {
+        // Disable image smoothing (all browser prefixes)
+        this.picking_context.imageSmoothingEnabled = false;
+        this.picking_context.webkitImageSmoothingEnabled = false;
+        this.picking_context.mozImageSmoothingEnabled = false;
+        this.picking_context.msImageSmoothingEnabled = false;
+        this.picking_context.oImageSmoothingEnabled = false;
+        
+        // Optimize text rendering for speed (no antialiasing)
+        if (this.picking_context.textRenderingOptimization) {
+            this.picking_context.textRenderingOptimization = 'optimizeSpeed';
+        }
+        if (this.picking_context.textRendering) {
+            this.picking_context.textRendering = 'optimizeSpeed';
+        }
+        
+        // Set quality to fastest (least antialiasing)
+        if (this.picking_context.imageSmoothingQuality) {
+            this.picking_context.imageSmoothingQuality = 'low';
+        }
+    }
+    
+    /**
+     * Render picking canvas for accurate object selection
+     * side-effects: Draws objects on invisible picking canvas with ID colors
+     */
+    renderPickingCanvas() {
+        // Clear picking canvas
+        this.picking_context.clearRect(0, 0, this.picking_canvas.width, this.picking_canvas.height);
+        
+        // Ensure antialiasing is completely disabled
+        this.disablePickingAntialiasing();
+        
+        // Sort objects by z-index (lowest first for proper layering)
+        const sorted_objects = [...this.plot_objects].sort((a, b) => (a.z_index || 0) - (b.z_index || 0));
+        
+        // First pass: Draw bounding boxes
+        for (const obj of sorted_objects) {
+            const color = this.getObjectColor(obj.id);
+            this.drawPickingBBox(obj, color);
+        }
+        
+        // Second pass: Draw actual objects on top (skip areas - they already have large bboxes)
+        for (const obj of sorted_objects) {
+            if (obj.type === 'area') {
+                continue; // Skip areas - their bboxes already fully cover them
+            }
+            const color = this.getObjectColor(obj.id);
+            this.drawPickingObject(obj, color);
+        }
+    }
+    
+    /**
+     * Draw object bounding box on picking canvas
+     * @param {Object} obj - Object to draw bbox for
+     * @param {string} color - Picking color for this object
+     * side-effects: Draws filled bbox on picking canvas
+     */
+    drawPickingBBox(obj, color) {
+        this.picking_context.fillStyle = color;
+        
+        switch (obj.type) {
+            case 'point':
+                const point_coords = this.plotToCanvas(obj.x, obj.y);
+                this.picking_context.beginPath();
+                this.picking_context.arc(point_coords.x, point_coords.y, obj.size + 3, 0, 2 * Math.PI);
+                this.picking_context.fill();
+                break;
+            case 'text':
+                this.drawPickingTextBBox(obj, color);
+                break;
+            case 'line':
+                this.drawPickingLineBBox(obj, color);
+                break;
+            case 'area':
+                this.drawPickingAreaBBox(obj, color);
+                break;
+            case 'brace':
+                this.drawPickingBraceBBox(obj, color);
+                break;
+        }
+    }
+    
+    /**
+     * Draw text bounding box on picking canvas
+     * @param {Object} text_obj - Text object
+     * @param {string} color - Picking color
+     * side-effects: Draws filled rotated text bbox on picking canvas
+     */
+    drawPickingTextBBox(text_obj, color) {
+        // Get text dimensions
+        this.picking_context.save();
+        
+        // Disable antialiasing for exact color matching
+        this.disablePickingAntialiasing();
+        
+        this.picking_context.font = `${text_obj.font_size}px ${text_obj.font_family}`;
+        const text_metrics = this.picking_context.measureText(text_obj.text);
+        const text_width = text_metrics.width;
+        const text_height = text_obj.font_size;
+        this.picking_context.restore();
+        
+        const text_canvas_coords = this.plotToCanvas(text_obj.x, text_obj.y);
+        
+        this.picking_context.save();
+        this.picking_context.fillStyle = color;
+        
+        // Disable antialiasing for exact color matching
+        this.disablePickingAntialiasing();
+        
+        // Apply rotation if specified
+        if (text_obj.rotation && text_obj.rotation !== 0) {
+            this.picking_context.translate(text_canvas_coords.x, text_canvas_coords.y);
+            this.picking_context.rotate((text_obj.rotation * Math.PI) / 180);
+            this.picking_context.fillRect(0, -text_height, text_width, text_height);
+        } else {
+            this.picking_context.fillRect(text_canvas_coords.x, text_canvas_coords.y - text_height, text_width, text_height);
+        }
+        
+        this.picking_context.restore();
+    }
+    
+    /**
+     * Draw brace bounding box on picking canvas
+     * @param {Object} brace_obj - Brace object
+     * @param {string} color - Picking color
+     * side-effects: Draws filled brace bbox on picking canvas
+     */
+    drawPickingBraceBBox(brace_obj, color) {
+        const start_coords = this.plotToCanvas(brace_obj.x1, brace_obj.y1);
+        const end_coords = this.plotToCanvas(brace_obj.x2, brace_obj.y2);
+        
+        // Calculate brace dimensions
+        const dx = end_coords.x - start_coords.x;
+        const dy = end_coords.y - start_coords.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length < 1) return; // Skip very short braces
+        
+        // Calculate perpendicular direction for brace width
+        const along_x = dx / length;
+        const along_y = dy / length;
+        const perp_x = -along_y;
+        const perp_y = along_x;
+        
+        // Brace extends in perpendicular direction based on elevation
+        const brace_elevation = (brace_obj.elevation || brace_obj.width || 15) * 2; // Make bbox wider than actual brace
+        const half_width = brace_elevation / 2;
+        
+        // Create bounding box around the brace
+        const bbox_points = [
+            {
+                x: start_coords.x + perp_x * half_width,
+                y: start_coords.y + perp_y * half_width
+            },
+            {
+                x: start_coords.x - perp_x * half_width,
+                y: start_coords.y - perp_y * half_width
+            },
+            {
+                x: end_coords.x - perp_x * half_width,
+                y: end_coords.y - perp_y * half_width
+            },
+            {
+                x: end_coords.x + perp_x * half_width,
+                y: end_coords.y + perp_y * half_width
+            }
+        ];
+        
+        // Draw filled polygon
+        this.picking_context.save();
+        this.picking_context.fillStyle = color;
+        this.picking_context.beginPath();
+        this.picking_context.moveTo(bbox_points[0].x, bbox_points[0].y);
+        for (let i = 1; i < bbox_points.length; i++) {
+            this.picking_context.lineTo(bbox_points[i].x, bbox_points[i].y);
+        }
+        this.picking_context.closePath();
+        this.picking_context.fill();
+        this.picking_context.restore();
+    }
+    
+    /**
+     * Draw area bounding box on picking canvas
+     * @param {Object} area_obj - Area object
+     * @param {string} color - Picking color
+     * side-effects: Draws filled area bbox on picking canvas
+     */
+    drawPickingAreaBBox(area_obj, color) {
+        const start_coords = this.plotToCanvas(area_obj.x1, area_obj.y1);
+        const end_coords = this.plotToCanvas(area_obj.x2, area_obj.y2);
+        
+        // Calculate area dimensions
+        const left = Math.min(start_coords.x, end_coords.x);
+        const top = Math.min(start_coords.y, end_coords.y);
+        const width = Math.abs(end_coords.x - start_coords.x);
+        const height = Math.abs(end_coords.y - start_coords.y);
+        
+        // Draw filled rectangle
+        this.picking_context.save();
+        this.picking_context.fillStyle = color;
+        this.picking_context.fillRect(left, top, width, height);
+        this.picking_context.restore();
+    }
+    
+    /**
+     * Draw line bounding box on picking canvas (rotated rectangle around the line)
+     * @param {Object} line_obj - Line object
+     * @param {string} color - Picking color
+     * side-effects: Draws filled rotated rectangle on picking canvas
+     */
+    drawPickingLineBBox(line_obj, color) {
+        const start_coords = this.plotToCanvas(line_obj.x1, line_obj.y1);
+        const end_coords = this.plotToCanvas(line_obj.x2, line_obj.y2);
+        
+        // Calculate line dimensions
+        const dx = end_coords.x - start_coords.x;
+        const dy = end_coords.y - start_coords.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length < 1) return; // Skip very short lines
+        
+        // Calculate perpendicular direction for line width
+        const along_x = dx / length;
+        const along_y = dy / length;
+        const perp_x = -along_y;
+        const perp_y = along_x;
+        
+        // Line extends in perpendicular direction based on width
+        const line_width = Math.max(8, (line_obj.width || 2) * 4); // Make thick for picking
+        const half_width = line_width / 2;
+        
+        // Create bounding box around the line
+        const bbox_points = [
+            {
+                x: start_coords.x + perp_x * half_width,
+                y: start_coords.y + perp_y * half_width
+            },
+            {
+                x: start_coords.x - perp_x * half_width,
+                y: start_coords.y - perp_y * half_width
+            },
+            {
+                x: end_coords.x - perp_x * half_width,
+                y: end_coords.y - perp_y * half_width
+            },
+            {
+                x: end_coords.x + perp_x * half_width,
+                y: end_coords.y + perp_y * half_width
+            }
+        ];
+        
+        // Draw filled polygon
+        this.picking_context.save();
+        this.picking_context.fillStyle = color;
+        this.picking_context.beginPath();
+        this.picking_context.moveTo(bbox_points[0].x, bbox_points[0].y);
+        for (let i = 1; i < bbox_points.length; i++) {
+            this.picking_context.lineTo(bbox_points[i].x, bbox_points[i].y);
+        }
+        this.picking_context.closePath();
+        this.picking_context.fill();
+        this.picking_context.restore();
+    }
+    
+    /**
+     * Draw object on picking canvas
+     * @param {Object} obj - Object to draw
+     * @param {string} color - Picking color for this object
+     * side-effects: Draws object on picking canvas
+     */
+    drawPickingObject(obj, color) {
+        this.picking_context.strokeStyle = color;
+        this.picking_context.fillStyle = color;
+        this.picking_context.lineWidth = Math.max(2, obj.width || 2); // Ensure minimum width for picking
+        
+        switch (obj.type) {
+            case 'point':
+                const point_coords = this.plotToCanvas(obj.x, obj.y);
+                this.picking_context.beginPath();
+                this.picking_context.arc(point_coords.x, point_coords.y, Math.max(obj.size, 3), 0, 2 * Math.PI);
+                this.picking_context.fill();
+                break;
+            case 'line':
+                const line_start = this.plotToCanvas(obj.x1, obj.y1);
+                const line_end = this.plotToCanvas(obj.x2, obj.y2);
+                this.picking_context.beginPath();
+                this.picking_context.moveTo(line_start.x, line_start.y);
+                this.picking_context.lineTo(line_end.x, line_end.y);
+                this.picking_context.stroke();
+                break;
+            case 'area':
+                const area_top_left = this.plotToCanvas(obj.x1, obj.y2);
+                const area_bottom_right = this.plotToCanvas(obj.x2, obj.y1);
+                this.picking_context.fillRect(area_top_left.x, area_top_left.y, 
+                                            area_bottom_right.x - area_top_left.x, 
+                                            area_bottom_right.y - area_top_left.y);
+                break;
+            case 'text':
+                // Text is handled by bbox, but we can also draw the text itself
+                const text_coords = this.plotToCanvas(obj.x, obj.y);
+                this.picking_context.save();
+                
+                // Disable antialiasing for exact color matching
+                this.disablePickingAntialiasing();
+                
+                this.picking_context.font = `${obj.font_size}px ${obj.font_family}`;
+                if (obj.rotation && obj.rotation !== 0) {
+                    this.picking_context.translate(text_coords.x, text_coords.y);
+                    this.picking_context.rotate((obj.rotation * Math.PI) / 180);
+                    this.picking_context.fillText(obj.text, 0, 0);
+                } else {
+                    this.picking_context.fillText(obj.text, text_coords.x, text_coords.y);
+                }
+                this.picking_context.restore();
+                break;
+            case 'brace':
+                this.drawPickingBrace(obj, color);
+                break;
+        }
+    }
+    
+    /**
+     * Draw brace on picking canvas using existing brace rendering code
+     * @param {Object} brace_obj - Brace object
+     * @param {string} color - Picking color
+     * side-effects: Draws brace shape on picking canvas
+     */
+    drawPickingBrace(brace_obj, color) {
+        // Save current context and switch to picking context
+        const original_context = this.context;
+        this.context = this.picking_context;
+        
+        // Save picking context state
+        this.picking_context.save();
+        
+        // Disable antialiasing completely
+        this.disablePickingAntialiasing();
+        
+        // Create a modified brace object with picking color but same width
+        const picking_brace = {
+            ...brace_obj,
+            color: color
+            // Keep original width - picking area should match visual exactly
+        };
+        
+        // Use the existing brace drawing logic
+        this.drawBrace(picking_brace);
+        
+        // Restore picking context state
+        this.picking_context.restore();
+        
+        // Restore original context
+        this.context = original_context;
     }
     
     /**
@@ -1419,10 +2037,10 @@ class PlotEditor {
         this.context.beginPath();
         
         // Use brace width property or fallback to calculated value (2x thinner)
-        const brace_width = brace.width || Math.min(20, length * 0.125);
+        const brace_elevation = brace.elevation || brace.width || Math.min(20, length * 0.125);
         const mirror_multiplier = brace.mirrored ? -1 : 1;
-        const perpX = -dy / length * brace_width * mirror_multiplier;
-        const perpY = dx / length * brace_width * mirror_multiplier;
+        const perpX = -dy / length * brace_elevation * mirror_multiplier;
+        const perpY = dx / length * brace_elevation * mirror_multiplier;
         
         // Calculate mid point
         const midX = (start_coords.x + end_coords.x) / 2;
@@ -1457,7 +2075,7 @@ class PlotEditor {
         this.context.beginPath();
         
         // Use brace width property or fallback to calculated value (2x thinner)
-        const brace_width = brace.width || Math.min(length * 0.125, 20);
+        const brace_elevation = brace.elevation || brace.width || Math.min(length * 0.125, 20);
         const mirror_multiplier = brace.mirrored ? -1 : 1;
         
         // Unit vectors along and perpendicular to the brace line
@@ -1467,7 +2085,7 @@ class PlotEditor {
         const perpUnitY = dx / length * mirror_multiplier;
         
         // Quarter circle radius - half the brace width
-        const radius = brace_width / 2;
+        const radius = brace_elevation / 2;
         
         // Calculate the 6 key points along the brace path following your specification:
         // TOP: quarter_circle -> line -> quarter_circle (to tip)
@@ -1499,8 +2117,8 @@ class PlotEditor {
         this.context.lineTo(line1_end_x, line1_end_y);
         
         // 3. Second quarter circle (inward to tip) - like "bottom right quarter of circle with center (0,5)"
-        const tip_x = start_coords.x + alongUnitX * tip_pos + perpUnitX * brace_width;
-        const tip_y = start_coords.y + alongUnitY * tip_pos + perpUnitY * brace_width;
+        const tip_x = start_coords.x + alongUnitX * tip_pos + perpUnitX * brace_elevation;
+        const tip_y = start_coords.y + alongUnitY * tip_pos + perpUnitY * brace_elevation;
         const q2_ctrl_x = start_coords.x + alongUnitX * tip_pos + perpUnitX * radius;
         const q2_ctrl_y = start_coords.y + alongUnitY * tip_pos + perpUnitY * radius;
         this.context.quadraticCurveTo(q2_ctrl_x, q2_ctrl_y, tip_x, tip_y);
@@ -1569,7 +2187,7 @@ class PlotEditor {
         const perpX = -dy / length * mirror_multiplier;
         const perpY = dx / length * mirror_multiplier;
         
-        const innerR = brace.width ? Math.min(brace.width, length / 6) : length / 6;
+        const innerR = brace.elevation || brace.width ? Math.min(brace.elevation || brace.width, length / 6) : length / 6;
         const outerR = innerR * Math.SQRT2;
         const segLen = Math.max(0, length / 2 - 2 * innerR);
         
@@ -1717,12 +2335,7 @@ class PlotEditor {
                 this.context.stroke();
                 break;
             case 'line':
-                const line_start = this.plotToCanvas(obj.x1, obj.y1);
-                const line_end = this.plotToCanvas(obj.x2, obj.y2);
-                this.context.beginPath();
-                this.context.moveTo(line_start.x, line_start.y);
-                this.context.lineTo(line_end.x, line_end.y);
-                this.context.stroke();
+                this.highlightLineBBox(obj);
                 break;
             case 'area':
                 const area_top_left = this.plotToCanvas(obj.x1, obj.y2);
@@ -1732,20 +2345,177 @@ class PlotEditor {
                                        area_bottom_right.y - area_top_left.y + 4);
                 break;
             case 'text':
-                const text_coords = this.plotToCanvas(obj.x, obj.y);
-                this.context.strokeRect(text_coords.x - 5, text_coords.y - 15, 50, 20);
+                this.highlightTextBBox(obj);
                 break;
             case 'brace':
-                const brace_start = this.plotToCanvas(obj.x1, obj.y1);
-                const brace_end = this.plotToCanvas(obj.x2, obj.y2);
-                this.context.beginPath();
-                this.context.moveTo(brace_start.x, brace_start.y);
-                this.context.lineTo(brace_end.x, brace_end.y);
-                this.context.stroke();
+                this.highlightBraceBBox(obj);
                 break;
         }
         
         this.context.setLineDash([]);
+    }
+    
+    /**
+     * Highlight text bounding box with proper rotation
+     * @param {Object} text_obj - Text object to highlight
+     * side-effects: Draws rotated highlight around text
+     */
+    highlightTextBBox(text_obj) {
+        // Get text dimensions by measuring
+        this.context.save();
+        this.context.font = `${text_obj.font_size}px ${text_obj.font_family}`;
+        const text_metrics = this.context.measureText(text_obj.text);
+        const text_width = text_metrics.width;
+        const text_height = text_obj.font_size; // Approximate height
+        this.context.restore();
+        
+        // Convert text position to canvas coordinates
+        const text_canvas_coords = this.plotToCanvas(text_obj.x, text_obj.y);
+        
+        // Add some padding around the text
+        const padding = 3;
+        const bbox_width = text_width + 2 * padding;
+        const bbox_height = text_height + 2 * padding;
+        
+        this.context.save();
+        
+        // Apply rotation if specified
+        if (text_obj.rotation && text_obj.rotation !== 0) {
+            this.context.translate(text_canvas_coords.x, text_canvas_coords.y);
+            this.context.rotate((text_obj.rotation * Math.PI) / 180);
+            
+            // Draw rotated bounding box (text extends to the right and up from anchor point)
+            this.context.strokeRect(-padding, -text_height - padding, bbox_width, bbox_height);
+        } else {
+            // Draw non-rotated bounding box
+            this.context.strokeRect(text_canvas_coords.x - padding, 
+                                   text_canvas_coords.y - text_height - padding, 
+                                   bbox_width, bbox_height);
+        }
+        
+        this.context.restore();
+    }
+    
+    /**
+     * Highlight line bounding box (rotated rectangle around the line)
+     * @param {Object} line_obj - Line object to highlight
+     * side-effects: Draws dashed rotated rectangle highlight
+     */
+    highlightLineBBox(line_obj) {
+        const start_coords = this.plotToCanvas(line_obj.x1, line_obj.y1);
+        const end_coords = this.plotToCanvas(line_obj.x2, line_obj.y2);
+        
+        // Calculate line dimensions
+        const dx = end_coords.x - start_coords.x;
+        const dy = end_coords.y - start_coords.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length < 1) return; // Skip very short lines
+        
+        // Calculate perpendicular direction for line width
+        const along_x = dx / length;
+        const along_y = dy / length;
+        const perp_x = -along_y;
+        const perp_y = along_x;
+        
+        // Line extends in perpendicular direction based on width
+        const line_width = Math.max(8, (line_obj.width || 2) * 4); // Match picking bbox thickness
+        const half_width = line_width / 2;
+        
+        // Create bounding box around the line
+        const bbox_points = [
+            {
+                x: start_coords.x + perp_x * half_width,
+                y: start_coords.y + perp_y * half_width
+            },
+            {
+                x: start_coords.x - perp_x * half_width,
+                y: start_coords.y - perp_y * half_width
+            },
+            {
+                x: end_coords.x - perp_x * half_width,
+                y: end_coords.y - perp_y * half_width
+            },
+            {
+                x: end_coords.x + perp_x * half_width,
+                y: end_coords.y + perp_y * half_width
+            }
+        ];
+        
+        // Draw dashed polygon
+        this.context.save();
+        this.context.strokeStyle = '#ff4444';
+        this.context.lineWidth = 2;
+        this.context.setLineDash([5, 5]); // Dashed pattern
+        this.context.beginPath();
+        this.context.moveTo(bbox_points[0].x, bbox_points[0].y);
+        for (let i = 1; i < bbox_points.length; i++) {
+            this.context.lineTo(bbox_points[i].x, bbox_points[i].y);
+        }
+        this.context.closePath();
+        this.context.stroke();
+        this.context.restore();
+    }
+    
+    /**
+     * Highlight brace bounding box (dashed polygon matching picking bbox)
+     * @param {Object} brace_obj - Brace object to highlight
+     * side-effects: Draws dashed polygon highlight around brace
+     */
+    highlightBraceBBox(brace_obj) {
+        const start_coords = this.plotToCanvas(brace_obj.x1, brace_obj.y1);
+        const end_coords = this.plotToCanvas(brace_obj.x2, brace_obj.y2);
+        
+        // Calculate brace dimensions (same logic as picking bbox)
+        const dx = end_coords.x - start_coords.x;
+        const dy = end_coords.y - start_coords.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length < 1) return; // Skip very short braces
+        
+        // Calculate perpendicular direction for brace elevation
+        const along_x = dx / length;
+        const along_y = dy / length;
+        const perp_x = -along_y;
+        const perp_y = along_x;
+        
+        // Brace extends in perpendicular direction based on elevation
+        const brace_elevation = (brace_obj.elevation || brace_obj.width || 15) * 2; // Match picking bbox
+        const half_width = brace_elevation / 2;
+        
+        // Create bounding box around the brace
+        const bbox_points = [
+            {
+                x: start_coords.x + perp_x * half_width,
+                y: start_coords.y + perp_y * half_width
+            },
+            {
+                x: start_coords.x - perp_x * half_width,
+                y: start_coords.y - perp_y * half_width
+            },
+            {
+                x: end_coords.x - perp_x * half_width,
+                y: end_coords.y - perp_y * half_width
+            },
+            {
+                x: end_coords.x + perp_x * half_width,
+                y: end_coords.y + perp_y * half_width
+            }
+        ];
+        
+        // Draw dashed polygon
+        this.context.save();
+        this.context.strokeStyle = '#ff4444';
+        this.context.lineWidth = 2;
+        this.context.setLineDash([5, 5]); // Dashed pattern
+        this.context.beginPath();
+        this.context.moveTo(bbox_points[0].x, bbox_points[0].y);
+        for (let i = 1; i < bbox_points.length; i++) {
+            this.context.lineTo(bbox_points[i].x, bbox_points[i].y);
+        }
+        this.context.closePath();
+        this.context.stroke();
+        this.context.restore();
     }
     
     /**
@@ -2075,10 +2845,10 @@ class PlotEditor {
         const length = Math.sqrt(dx * dx + dy * dy);
         
         // Use brace width property or fallback to calculated value (2x thinner)
-        const brace_width = brace.width || Math.min(20, length * 0.125);
+        const brace_elevation = brace.elevation || brace.width || Math.min(20, length * 0.125);
         const mirror_multiplier = brace.mirrored ? -1 : 1;
-        const perpX = -dy / length * brace_width * mirror_multiplier;
-        const perpY = dx / length * brace_width * mirror_multiplier;
+        const perpX = -dy / length * brace_elevation * mirror_multiplier;
+        const perpY = dx / length * brace_elevation * mirror_multiplier;
         
         const midX = (start_coords.x + end_coords.x) / 2;
         const midY = (start_coords.y + end_coords.y) / 2;
@@ -2106,7 +2876,7 @@ class PlotEditor {
         if (length < 20) return ''; // Skip very short braces
         
         // Use brace width property or fallback to calculated value (2x thinner)
-        const brace_width = brace.width || Math.min(length * 0.125, 20);
+        const brace_elevation = brace.elevation || brace.width || Math.min(length * 0.125, 20);
         const mirror_multiplier = brace.mirrored ? -1 : 1;
         
         // Unit vectors along and perpendicular to the brace line
@@ -2116,7 +2886,7 @@ class PlotEditor {
         const perpUnitY = dx / length * mirror_multiplier;
         
         // Quarter circle radius - half the brace width
-        const radius = brace_width / 2;
+        const radius = brace_elevation / 2;
         
         const quarter_distance = length / 4;
         
@@ -2144,8 +2914,8 @@ class PlotEditor {
         path += ` L ${line1_end_x} ${line1_end_y}`;
         
         // 3. Second quarter circle (inward to tip)
-        const tip_x = start_coords.x + alongUnitX * tip_pos + perpUnitX * brace_width;
-        const tip_y = start_coords.y + alongUnitY * tip_pos + perpUnitY * brace_width;
+        const tip_x = start_coords.x + alongUnitX * tip_pos + perpUnitX * brace_elevation;
+        const tip_y = start_coords.y + alongUnitY * tip_pos + perpUnitY * brace_elevation;
         const q2_ctrl_x = start_coords.x + alongUnitX * tip_pos + perpUnitX * radius;
         const q2_ctrl_y = start_coords.y + alongUnitY * tip_pos + perpUnitY * radius;
         path += ` Q ${q2_ctrl_x} ${q2_ctrl_y} ${tip_x} ${tip_y}`;
@@ -2190,7 +2960,7 @@ class PlotEditor {
         const perpX = -dy / length * mirror_multiplier;
         const perpY = dx / length * mirror_multiplier;
         
-        let innerR = brace.width ? Math.min(brace.width, length / 6) : length / 6;
+        let innerR = brace.elevation || brace.width ? Math.min(brace.elevation || brace.width, length / 6) : length / 6;
         const outerR = innerR * Math.SQRT2;
         const segLen = Math.max(0, length / 2 - 2 * innerR);
         
@@ -2225,7 +2995,7 @@ class PlotEditor {
             const ax = dx / L, ay = dy / L;
             const px = -dy / L * mirrorMultiplier;
             const py = dx / L * mirrorMultiplier;
-            const rIn = brace.width ? Math.min(brace.width, L / 6) : L / 6;
+            const rIn = brace.elevation || brace.width ? Math.min(brace.elevation || brace.width, L / 6) : L / 6;
             const rOut = rIn * Math.SQRT2;
             const seg = Math.max(0, L / 2 - 2 * rIn);
             const P1x = Sx + ax * rIn + px * (rIn - rOut);
@@ -2610,9 +3380,9 @@ class PlotEditor {
                         </select>
                     </div>
                     <div class="property-row">
-                        <label>Width:</label>
-                        <input type="number" min="1" max="100" step="1" value="${this.selected_object.width || 10}" 
-                               onchange="plotEditor.updateObjectProperty('width', parseFloat(this.value))">
+                        <label>Elevation:</label>
+                        <input type="number" min="1" max="100" step="1" value="${this.selected_object.elevation || this.selected_object.width || 15}" 
+                               onchange="plotEditor.updateObjectProperty('elevation', parseFloat(this.value))">
                     </div>
                     <div class="property-row">
                         <label>Z-Index:</label>

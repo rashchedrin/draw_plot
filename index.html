@@ -29,22 +29,22 @@
                 <div class="tool-panel">
                     <h3>Tools</h3>
                     <div class="tool-buttons">
-                        <button id="tool-select" class="tool-btn active" data-tool="select">
+                        <button id="tool-select" class="tool-btn active" data-tool="select" title="Select tool (Ctrl+1)">
                             <span class="icon">⟷</span>Select
                         </button>
-                        <button id="tool-point" class="tool-btn" data-tool="point">
+                        <button id="tool-point" class="tool-btn" data-tool="point" title="Point tool (Ctrl+2)">
                             <span class="icon">•</span>Point
                         </button>
-                        <button id="tool-line" class="tool-btn" data-tool="line">
+                        <button id="tool-line" class="tool-btn" data-tool="line" title="Line tool (Ctrl+3)">
                             <span class="icon">📏</span>Line
                         </button>
-                        <button id="tool-area" class="tool-btn" data-tool="area">
+                        <button id="tool-area" class="tool-btn" data-tool="area" title="Area tool (Ctrl+4)">
                             <span class="icon">▢</span>Area
                         </button>
-                        <button id="tool-brace" class="tool-btn" data-tool="brace">
+                        <button id="tool-brace" class="tool-btn" data-tool="brace" title="Brace tool (Ctrl+5)">
                             <span class="icon">}</span>Brace
                         </button>
-                        <button id="tool-text" class="tool-btn" data-tool="text">
+                        <button id="tool-text" class="tool-btn" data-tool="text" title="Text tool (Ctrl+6)">
                             <span class="icon">T</span>Text
                         </button>
                     </div>
@@ -81,8 +81,13 @@
                 </div>
 
                 <div class="object-list-panel">
-                    <h3>Objects</h3>
-                    <div id="object-list">
+                    <div class="panel-header">
+                        <h3>Objects</h3>
+                        <button class="collapse-toggle" id="objects-collapse-toggle" title="Toggle objects list">
+                            <span class="collapse-icon">▼</span>
+                        </button>
+                    </div>
+                    <div id="object-list" class="collapsible-content">
                         <p class="no-objects">No objects in plot</p>
                     </div>
                 </div>

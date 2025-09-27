@@ -39,6 +39,7 @@ function setupUIEventListeners() {
     setupAxesControls();
     setupTopToolbar();
     setupKeyboardShortcuts();
+    setupCollapsiblePanels();
 }
 
 /**
@@ -467,6 +468,40 @@ function addSaveLoadButtons() {
 document.addEventListener('DOMContentLoaded', function() {
     addSaveLoadButtons();
 });
+
+/**
+ * Set up collapsible panels functionality
+ * side-effects: Adds click listeners to collapse toggles
+ */
+function setupCollapsiblePanels() {
+    const toggle_button = document.getElementById('objects-collapse-toggle');
+    const content = document.getElementById('object-list');
+    
+    if (toggle_button && content) {
+        // Load saved state from localStorage
+        const is_collapsed = localStorage.getItem('objects-list-collapsed') === 'true';
+        if (is_collapsed) {
+            toggle_button.classList.add('collapsed');
+            content.classList.add('collapsed');
+        }
+        
+        toggle_button.addEventListener('click', function() {
+            const is_currently_collapsed = toggle_button.classList.contains('collapsed');
+            
+            if (is_currently_collapsed) {
+                // Expand
+                toggle_button.classList.remove('collapsed');
+                content.classList.remove('collapsed');
+                localStorage.setItem('objects-list-collapsed', 'false');
+            } else {
+                // Collapse
+                toggle_button.classList.add('collapsed');
+                content.classList.add('collapsed');
+                localStorage.setItem('objects-list-collapsed', 'true');
+            }
+        });
+    }
+}
 
 /**
  * Assert function for debugging and validation
