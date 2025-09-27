@@ -651,6 +651,7 @@ class PlotEditor {
                 color: '#333333',
                 font_size: 14,
                 font_family: 'Arial',
+                rotation: 0,
                 z_index: 0
             };
             const command = new AddObjectCommand(this, text_object);
@@ -1365,9 +1366,21 @@ class PlotEditor {
      */
     drawText(text) {
         const canvas_coords = this.plotToCanvas(text.x, text.y);
+        
+        this.context.save();
+        
+        // Apply rotation if specified
+        if (text.rotation && text.rotation !== 0) {
+            this.context.translate(canvas_coords.x, canvas_coords.y);
+            this.context.rotate((text.rotation * Math.PI) / 180); // Convert degrees to radians
+            this.context.translate(-canvas_coords.x, -canvas_coords.y);
+        }
+        
         this.context.fillStyle = text.color;
         this.context.font = `${text.font_size}px ${text.font_family}`;
         this.context.fillText(text.text, canvas_coords.x, canvas_coords.y);
+        
+        this.context.restore();
     }
     
     /**
@@ -2020,7 +2033,13 @@ class PlotEditor {
      */
     generateTextSVG(text) {
         const canvas_coords = this.plotToCanvas(text.x, text.y);
-        return `\n<text x="${canvas_coords.x}" y="${canvas_coords.y}" font-family="${text.font_family}" font-size="${text.font_size}" fill="${text.color}">${this.escapeXML(text.text)}</text>`;
+        
+        let transform_attr = '';
+        if (text.rotation && text.rotation !== 0) {
+            transform_attr = ` transform="rotate(${text.rotation} ${canvas_coords.x} ${canvas_coords.y})"`;
+        }
+        
+        return `\n<text x="${canvas_coords.x}" y="${canvas_coords.y}" font-family="${text.font_family}" font-size="${text.font_size}" fill="${text.color}"${transform_attr}>${this.escapeXML(text.text)}</text>`;
     }
     
     /**
@@ -2533,6 +2552,11 @@ class PlotEditor {
                         <label>Size:</label>
                         <input type="number" min="8" max="48" value="${this.selected_object.font_size}" 
                                onchange="plotEditor.updateObjectProperty('font_size', parseInt(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Rotation (°):</label>
+                        <input type="number" min="-360" max="360" step="1" value="${this.selected_object.rotation || 0}" 
+                               onchange="plotEditor.updateObjectProperty('rotation', parseFloat(this.value))">
                     </div>
                     <div class="property-row">
                         <label>Color:</label>
