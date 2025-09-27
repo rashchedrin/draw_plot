@@ -423,12 +423,35 @@ function exportPlotAsSVG() {
  */
 function getPlotData() {
     assert(g_plot_editor !== null, "Expected plot editor to be initialized, got null");
-    
+
+    // Create a copy of objects with serializable data only
+    const serializable_objects = g_plot_editor.plot_objects.map(obj => {
+        const serializable_obj = { ...obj };
+
+        // For function objects, we need to remove any non-serializable properties
+        if (obj.type === 'function') {
+            // Keep only the essential properties that can be serialized
+            // The compiled function will be recreated when loading
+            return {
+                type: obj.type,
+                id: obj.id,
+                expression: obj.expression,
+                xMin: obj.xMin,
+                xMax: obj.xMax,
+                color: obj.color,
+                width: obj.width,
+                z_index: obj.z_index
+            };
+        }
+
+        return serializable_obj;
+    });
+
     return {
         version: '1.0',
         plot_bounds: g_plot_editor.plot_bounds,
         axes_properties: g_plot_editor.axes_properties,
-        objects: g_plot_editor.plot_objects,
+        objects: serializable_objects,
         timestamp: new Date().toISOString()
     };
 }
@@ -471,7 +494,12 @@ function loadPlotData(plot_data) {
         g_plot_editor.selected_object = null;
         g_plot_editor.updatePropertiesPanel();
         g_plot_editor.updateObjectList();
-        g_plot_editor.redraw();
+
+        // Wait for math library to be ready before redrawing
+        g_plot_editor.initializeMathLibrary(() => {
+            console.log('Math library ready, redrawing after load');
+            g_plot_editor.redraw();
+        });
     }
 }
 

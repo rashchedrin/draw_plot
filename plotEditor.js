@@ -539,11 +539,71 @@ class PlotEditor {
         }
         
         this.updateUndoRedoButtons();
-        
+
         // Initialize math.js for function parsing
-        this.math = window.math;
+        this.initializeMathLibrary();
     }
-    
+
+    /**
+     * Initialize the math.js library
+     * @param {Function} callback - Optional callback to call when library is ready
+     * side-effects: Sets this.math when library is available
+     */
+    initializeMathLibrary(callback = null) {
+        // If already initialized, just call callback
+        if (this.isMathLibraryReady()) {
+            if (callback) callback();
+            return;
+        }
+
+        // Check if math.js is already available
+        if (typeof window !== 'undefined' && window.math) {
+            this.math = window.math;
+            if (callback) callback();
+            return;
+        }
+
+        // Also check if we're in a Node.js environment
+        if (typeof global !== 'undefined' && global.math) {
+            this.math = global.math;
+            if (callback) callback();
+            return;
+        }
+
+        // If not available, wait for it to load
+        if (typeof window !== 'undefined') {
+            // Check periodically until math.js is loaded
+            const checkMath = () => {
+                if (window.math) {
+                    this.math = window.math;
+                    if (callback) callback();
+                } else {
+                    setTimeout(checkMath, 100);
+                }
+            };
+            checkMath();
+        } else if (typeof global !== 'undefined') {
+            // Check in Node.js environment
+            const checkMath = () => {
+                if (global.math) {
+                    this.math = global.math;
+                    if (callback) callback();
+                } else {
+                    setTimeout(checkMath, 100);
+                }
+            };
+            checkMath();
+        }
+    }
+
+    /**
+     * Check if math library is available
+     * @returns {boolean} - True if math library is ready
+     */
+    isMathLibraryReady() {
+        return this.math !== undefined && this.math !== null && typeof this.math.compile === 'function';
+    }
+
     /**
      * Undo the last command
      * side-effects: Undoes command, updates history index
@@ -2054,6 +2114,20 @@ class PlotEditor {
      * side-effects: Draws function path on picking canvas
      */
     drawPickingFunction(func_obj, color) {
+        if (!this.isMathLibraryReady()) {
+            console.warn('Math library not ready, skipping function picking');
+            // Wait for math library to be ready
+            const waitForMath = () => {
+                if (this.isMathLibraryReady()) {
+                    this.renderPickingCanvas();
+                } else {
+                    setTimeout(waitForMath, 100);
+                }
+            };
+            waitForMath();
+            return;
+        }
+
         try {
             // Create a compiled function for better performance
             const compiledFunction = this.math.compile(func_obj.expression);
@@ -2473,6 +2547,21 @@ class PlotEditor {
      * side-effects: Draws function on canvas with smart discontinuity detection
      */
     drawFunction(func) {
+        if (!this.isMathLibraryReady()) {
+            console.warn('Math library not ready, skipping function drawing');
+            // Wait for math library to be ready
+            const waitForMath = () => {
+                if (this.isMathLibraryReady()) {
+                    console.log('Math library ready in drawFunction, redrawing');
+                    this.redraw();
+                } else {
+                    setTimeout(waitForMath, 100);
+                }
+            };
+            waitForMath();
+            return;
+        }
+
         try {
             // Create a compiled function for better performance
             const compiledFunction = this.math.compile(func.expression);
@@ -3124,6 +3213,20 @@ class PlotEditor {
      * side-effects: Draws dashed highlight around function
      */
     highlightFunction(func_obj) {
+        if (!this.isMathLibraryReady()) {
+            console.warn('Math library not ready, skipping function highlighting');
+            // Wait for math library to be ready
+            const waitForMath = () => {
+                if (this.isMathLibraryReady()) {
+                    this.redraw();
+                } else {
+                    setTimeout(waitForMath, 100);
+                }
+            };
+            waitForMath();
+            return;
+        }
+
         try {
             // Create a compiled function for better performance
             const compiledFunction = this.math.compile(func_obj.expression);
@@ -4093,6 +4196,13 @@ class PlotEditor {
      * @returns {string} SVG path for function
      */
     generateFunctionSVG(func) {
+        if (!this.isMathLibraryReady()) {
+            console.warn('Math library not ready, skipping function SVG generation');
+            // Wait for math library and try again
+            // For SVG generation, we'll return empty for now and let the caller handle it
+            return '';
+        }
+
         try {
             // Create a compiled function for better performance
             const compiledFunction = this.math.compile(func.expression);
