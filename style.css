@@ -406,6 +406,30 @@ select:focus {
     background: #da190b;
 }
 
+/* Function panel styles */
+.function-panel {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.range-inputs {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.range-inputs input {
+    flex: 1;
+}
+
+.range-inputs span {
+    font-weight: 500;
+    color: #666;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     .main-content {

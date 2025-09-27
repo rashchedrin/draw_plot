@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visual Plot Editor</title>
     <link rel="stylesheet" href="style.css">
+    <script src="math.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -47,6 +48,9 @@
                         <button id="tool-text" class="tool-btn" data-tool="text" title="Text tool (Ctrl+6)">
                             <span class="icon">T</span>Text
                         </button>
+                        <button id="tool-function" class="tool-btn" data-tool="function" title="Function tool (Ctrl+7)">
+                            <span class="icon">f(x)</span>Function
+                        </button>
                     </div>
                 </div>
 
@@ -78,6 +82,31 @@
                         <label>Aspect Ratio:</label>
                         <input type="number" id="aspect-ratio" value="1.0" step="0.1" min="0.1" max="10" />
                     </div>
+                </div>
+
+                <div class="function-panel" id="function-panel" style="display: none;">
+                    <h3>Function Plot</h3>
+                    <div class="form-group">
+                        <label>Function f(x):</label>
+                        <input type="text" id="function-expression" placeholder="e.g., x^2, sin(x), 1/x" />
+                    </div>
+                    <div class="form-group">
+                        <label>X Range:</label>
+                        <div class="range-inputs">
+                            <input type="text" id="function-x-min" value="-∞" placeholder="Min (-∞ for auto)" />
+                            <span>to</span>
+                            <input type="text" id="function-x-max" value="∞" placeholder="Max (∞ for auto)" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Color:</label>
+                        <input type="color" id="function-color" value="#0066cc" />
+                    </div>
+                    <div class="form-group">
+                        <label>Line Width:</label>
+                        <input type="number" id="function-width" value="2" min="1" max="10" step="1" />
+                    </div>
+                    <button id="add-function" class="btn btn-primary">Add Function</button>
                 </div>
 
                 <div class="object-list-panel">

@@ -539,6 +539,9 @@ class PlotEditor {
         }
         
         this.updateUndoRedoButtons();
+        
+        // Initialize math.js for function parsing
+        this.math = window.math;
     }
     
     /**
@@ -900,6 +903,354 @@ class PlotEditor {
             const command = new AddObjectCommand(this, brace_object);
             this.executeCommand(command);
         }
+    }
+    
+    /**
+     * Add a mathematical function to the plot
+     * @param {string} expression - Function expression (e.g., "x^2", "sin(x)", "1/x")
+     * @param {number|null} xMin - Start of x range (null for axes bounds)
+     * @param {number|null} xMax - End of x range (null for axes bounds)
+     * @param {string} color - Function color
+     * @param {number} width - Line width
+     * side-effects: Adds function object to plot_objects array
+     */
+    addFunction(expression, xMin, xMax, color = '#0066cc', width = 2) {
+        const function_object = {
+            type: 'function',
+            id: this.generateId(),
+            expression: expression,
+            xMin: xMin,
+            xMax: xMax,
+            color: color,
+            width: width,
+            z_index: 0
+        };
+
+        const command = new AddObjectCommand(this, function_object);
+        this.executeCommand(command);
+        this.redraw();
+    }
+    
+    /**
+     * Update the object list display
+     * side-effects: Updates the object list HTML
+     */
+    updateObjectList() {
+        const object_list = document.getElementById('object-list');
+        if (!object_list) return;
+        
+        if (this.plot_objects.length === 0) {
+            object_list.innerHTML = '<p class="no-objects">No objects in plot</p>';
+            return;
+        }
+        
+        let html = '';
+        for (const obj of this.plot_objects) {
+            const is_selected = this.selected_object && this.selected_object.id === obj.id;
+            const selected_class = is_selected ? 'selected' : '';
+            
+            let object_name = '';
+            switch (obj.type) {
+                case 'point':
+                    object_name = `Point (${obj.x.toFixed(1)}, ${obj.y.toFixed(1)})`;
+                    break;
+                case 'line':
+                    object_name = `Line (${obj.x1.toFixed(1)}, ${obj.y1.toFixed(1)}) to (${obj.x2.toFixed(1)}, ${obj.y2.toFixed(1)})`;
+                    break;
+                case 'area':
+                    object_name = `Area (${obj.x1.toFixed(1)}, ${obj.y1.toFixed(1)}) to (${obj.x2.toFixed(1)}, ${obj.y2.toFixed(1)})`;
+                    break;
+                case 'text':
+                    object_name = `Text: "${obj.text}"`;
+                    break;
+                case 'brace':
+                    object_name = `Brace (${obj.x1.toFixed(1)}, ${obj.y1.toFixed(1)}) to (${obj.x2.toFixed(1)}, ${obj.y2.toFixed(1)})`;
+                    break;
+                case 'function':
+                    const xMinDisplay = obj.xMin !== null ? obj.xMin.toFixed(1) : '-∞';
+                    const xMaxDisplay = obj.xMax !== null ? obj.xMax.toFixed(1) : '∞';
+                    object_name = `Function: f(x) = ${obj.expression} (${xMinDisplay} to ${xMaxDisplay})`;
+                    break;
+                default:
+                    object_name = `${obj.type} object`;
+            }
+            
+            html += `<div class="object-item ${selected_class}" data-object-id="${obj.id}">
+                        <span class="object-name">${object_name}</span>
+                        <span class="object-type">${obj.type}</span>
+                    </div>`;
+        }
+        
+        object_list.innerHTML = html;
+    }
+    
+    /**
+     * Update the properties panel for the selected object
+     * side-effects: Updates the properties panel HTML
+     */
+    updatePropertiesPanel() {
+        const properties_container = document.getElementById('object-properties');
+        if (!properties_container) return;
+        
+        if (!this.selected_object) {
+            properties_container.innerHTML = '<div class="no-selection">No object selected</div>';
+            return;
+        }
+        
+        let properties_html = `<div class="properties-header">
+            <h4>${this.selected_object.type.charAt(0).toUpperCase() + this.selected_object.type.slice(1)} Properties</h4>
+        </div>`;
+        
+        switch (this.selected_object.type) {
+            case 'point':
+                properties_html += `
+                    <div class="property-row">
+                        <label>X:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.x}" 
+                               onchange="plotEditor.updateObjectProperty('x', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Y:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.y}" 
+                               onchange="plotEditor.updateObjectProperty('y', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Size:</label>
+                        <input type="number" min="1" max="50" step="1" value="${this.selected_object.size || 5}" 
+                               onchange="plotEditor.updateObjectProperty('size', parseInt(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Color:</label>
+                        <input type="color" class="color-input" value="${this.selected_object.color}" 
+                               onchange="plotEditor.updateObjectProperty('color', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>Text:</label>
+                        <input type="text" value="${this.selected_object.text || ''}" 
+                               onchange="plotEditor.updateObjectProperty('text', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>Show Coordinates:</label>
+                        <input type="checkbox" ${this.selected_object.show_coordinates ? 'checked' : ''} 
+                               onchange="plotEditor.updateObjectProperty('show_coordinates', this.checked)">
+                    </div>
+                    <div class="property-row">
+                        <label>Z-Index:</label>
+                        <input type="number" value="${this.selected_object.z_index || 0}" 
+                               onchange="plotEditor.updateObjectProperty('z_index', parseInt(this.value))">
+                    </div>`;
+                break;
+            case 'line':
+                properties_html += `
+                    <div class="property-row">
+                        <label>X1:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.x1}" 
+                               onchange="plotEditor.updateObjectProperty('x1', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Y1:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.y1}" 
+                               onchange="plotEditor.updateObjectProperty('y1', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>X2:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.x2}" 
+                               onchange="plotEditor.updateObjectProperty('x2', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Y2:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.y2}" 
+                               onchange="plotEditor.updateObjectProperty('y2', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Color:</label>
+                        <input type="color" class="color-input" value="${this.selected_object.color}" 
+                               onchange="plotEditor.updateObjectProperty('color', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>Width:</label>
+                        <input type="number" min="1" max="20" step="1" value="${this.selected_object.width || 2}" 
+                               onchange="plotEditor.updateObjectProperty('width', parseInt(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Z-Index:</label>
+                        <input type="number" value="${this.selected_object.z_index || 0}" 
+                               onchange="plotEditor.updateObjectProperty('z_index', parseInt(this.value))">
+                    </div>`;
+                break;
+            case 'area':
+                properties_html += `
+                    <div class="property-row">
+                        <label>X1:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.x1}" 
+                               onchange="plotEditor.updateObjectProperty('x1', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Y1:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.y1}" 
+                               onchange="plotEditor.updateObjectProperty('y1', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>X2:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.x2}" 
+                               onchange="plotEditor.updateObjectProperty('x2', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Y2:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.y2}" 
+                               onchange="plotEditor.updateObjectProperty('y2', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Color:</label>
+                        <input type="color" class="color-input" value="${this.selected_object.color}" 
+                               onchange="plotEditor.updateObjectProperty('color', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>Z-Index:</label>
+                        <input type="number" value="${this.selected_object.z_index || 0}" 
+                               onchange="plotEditor.updateObjectProperty('z_index', parseInt(this.value))">
+                    </div>`;
+                break;
+            case 'text':
+                properties_html += `
+                    <div class="property-row">
+                        <label>X:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.x}" 
+                               onchange="plotEditor.updateObjectProperty('x', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Y:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.y}" 
+                               onchange="plotEditor.updateObjectProperty('y', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Text:</label>
+                        <input type="text" value="${this.selected_object.text}" 
+                               onchange="plotEditor.updateObjectProperty('text', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>Color:</label>
+                        <input type="color" class="color-input" value="${this.selected_object.color}" 
+                               onchange="plotEditor.updateObjectProperty('color', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>Font Size:</label>
+                        <input type="number" min="8" max="72" step="1" value="${this.selected_object.font_size || 12}" 
+                               onchange="plotEditor.updateObjectProperty('font_size', parseInt(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Font Family:</label>
+                        <select onchange="plotEditor.updateObjectProperty('font_family', this.value)" style="width: 100%;">
+                            <option value="Arial" ${(this.selected_object.font_family || 'Arial') === 'Arial' ? 'selected' : ''}>Arial</option>
+                            <option value="Times New Roman" ${(this.selected_object.font_family || 'Arial') === 'Times New Roman' ? 'selected' : ''}>Times New Roman</option>
+                            <option value="Courier New" ${(this.selected_object.font_family || 'Arial') === 'Courier New' ? 'selected' : ''}>Courier New</option>
+                            <option value="Georgia" ${(this.selected_object.font_family || 'Arial') === 'Georgia' ? 'selected' : ''}>Georgia</option>
+                        </select>
+                    </div>
+                    <div class="property-row">
+                        <label>Rotation (degrees):</label>
+                        <input type="number" min="-360" max="360" step="1" value="${this.selected_object.rotation || 0}" 
+                               onchange="plotEditor.updateObjectProperty('rotation', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Z-Index:</label>
+                        <input type="number" value="${this.selected_object.z_index || 0}" 
+                               onchange="plotEditor.updateObjectProperty('z_index', parseInt(this.value))">
+                    </div>`;
+                break;
+            case 'brace':
+                properties_html += `
+                    <div class="property-row">
+                        <label>X1:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.x1}" 
+                               onchange="plotEditor.updateObjectProperty('x1', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Y1:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.y1}" 
+                               onchange="plotEditor.updateObjectProperty('y1', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>X2:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.x2}" 
+                               onchange="plotEditor.updateObjectProperty('x2', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Y2:</label>
+                        <input type="number" step="0.1" value="${this.selected_object.y2}" 
+                               onchange="plotEditor.updateObjectProperty('y2', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Color:</label>
+                        <input type="color" class="color-input" value="${this.selected_object.color}" 
+                               onchange="plotEditor.updateObjectProperty('color', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>Mirror:</label>
+                        <input type="checkbox" ${this.selected_object.mirrored ? 'checked' : ''} 
+                               onchange="plotEditor.updateObjectProperty('mirrored', this.checked)">
+                    </div>
+                    <div class="property-row">
+                        <label>Style:</label>
+                        <select onchange="plotEditor.updateObjectProperty('style', this.value)" style="width: 100%;">
+                            <option value="smooth" ${(this.selected_object.style || '45deg') === 'smooth' ? 'selected' : ''}>Smooth</option>
+                            <option value="traditional" ${(this.selected_object.style || '45deg') === 'traditional' ? 'selected' : ''}>Traditional</option>
+                            <option value="45deg" ${(this.selected_object.style || '45deg') === '45deg' ? 'selected' : ''}>45° (No Overlap)</option>
+                        </select>
+                    </div>
+                    <div class="property-row">
+                        <label>Elevation:</label>
+                        <input type="number" min="1" max="100" step="1" value="${this.selected_object.elevation || this.selected_object.width || 15}" 
+                               onchange="plotEditor.updateObjectProperty('elevation', parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Z-Index:</label>
+                        <input type="number" value="${this.selected_object.z_index || 0}" 
+                               onchange="plotEditor.updateObjectProperty('z_index', parseInt(this.value))">
+                    </div>`;
+                break;
+            case 'function':
+                const funcXMinDisplay = this.selected_object.xMin !== null ? this.selected_object.xMin : '-∞';
+                const funcXMaxDisplay = this.selected_object.xMax !== null ? this.selected_object.xMax : '∞';
+                properties_html += `
+                    <div class="property-row">
+                        <label>Expression:</label>
+                        <input type="text" value="${this.selected_object.expression}"
+                               onchange="plotEditor.updateObjectProperty('expression', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>X Min:</label>
+                        <input type="text" value="${funcXMinDisplay}"
+                               onchange="plotEditor.updateObjectProperty('xMin', this.value === '-∞' || this.value === '' ? null : parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>X Max:</label>
+                        <input type="text" value="${funcXMaxDisplay}"
+                               onchange="plotEditor.updateObjectProperty('xMax', this.value === '∞' || this.value === '' ? null : parseFloat(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Color:</label>
+                        <input type="color" class="color-input" value="${this.selected_object.color}"
+                               onchange="plotEditor.updateObjectProperty('color', this.value)">
+                    </div>
+                    <div class="property-row">
+                        <label>Width:</label>
+                        <input type="number" min="1" max="20" step="1" value="${this.selected_object.width || 2}"
+                               onchange="plotEditor.updateObjectProperty('width', parseInt(this.value))">
+                    </div>
+                    <div class="property-row">
+                        <label>Z-Index:</label>
+                        <input type="number" value="${this.selected_object.z_index || 0}"
+                               onchange="plotEditor.updateObjectProperty('z_index', parseInt(this.value))">
+                    </div>`;
+                break;
+        }
+        
+        properties_html += `
+            <button class="delete-btn" onclick="plotEditor.deleteSelectedObject()">Delete Object</button>
+        </div>`;
+        
+        properties_container.innerHTML = properties_html;
     }
     
     /**
@@ -1656,6 +2007,9 @@ class PlotEditor {
             case 'brace':
                 this.drawPickingBrace(obj, color);
                 break;
+            case 'function':
+                this.drawPickingFunction(obj, color);
+                break;
         }
     }
     
@@ -1692,7 +2046,83 @@ class PlotEditor {
         // Restore original context
         this.context = original_context;
     }
-    
+
+    /**
+     * Draw function on picking canvas (simplified path for selection)
+     * @param {Object} func_obj - Function object
+     * @param {string} color - Picking color
+     * side-effects: Draws function path on picking canvas
+     */
+    drawPickingFunction(func_obj, color) {
+        try {
+            // Create a compiled function for better performance
+            const compiledFunction = this.math.compile(func_obj.expression);
+
+            // Determine the actual x range to plot
+            const plot_x_min = func_obj.xMin !== null ? func_obj.xMin : this.plot_bounds.x_min;
+            const plot_x_max = func_obj.xMax !== null ? func_obj.xMax : this.plot_bounds.x_max;
+
+            // Calculate number of samples (fewer than display for performance)
+            const range = plot_x_max - plot_x_min;
+            const samples = Math.min(Math.max(Math.floor(range * 20), 50), 500); // 20 samples per unit, min 50, max 500
+            const step = range / samples;
+
+            this.picking_context.strokeStyle = color;
+            this.picking_context.lineWidth = Math.max(4, func_obj.width || 2); // Make thicker for easier picking
+            this.picking_context.beginPath();
+
+            let firstPoint = true;
+
+            for (let i = 0; i <= samples; i++) {
+                const x = plot_x_min + i * step;
+
+                try {
+                    // Evaluate function at x
+                    const y = compiledFunction.evaluate({ x: x });
+
+                    if (isFinite(y)) {
+                        const canvasCoords = this.plotToCanvas(x, y);
+
+                        // Only draw if the point is within the effective plot area
+                        const effective_plot_area = this.getEffectivePlotArea();
+                        if (canvasCoords.x >= effective_plot_area.left &&
+                            canvasCoords.x <= effective_plot_area.right &&
+                            canvasCoords.y >= effective_plot_area.top &&
+                            canvasCoords.y <= effective_plot_area.bottom) {
+
+                            if (firstPoint) {
+                                this.picking_context.moveTo(canvasCoords.x, canvasCoords.y);
+                                firstPoint = false;
+                            } else {
+                                this.picking_context.lineTo(canvasCoords.x, canvasCoords.y);
+                            }
+                        }
+                    } else {
+                        // Invalid point - end current path and start new one
+                        if (!firstPoint) {
+                            this.picking_context.stroke();
+                            this.picking_context.beginPath();
+                            firstPoint = true;
+                        }
+                    }
+                } catch (error) {
+                    // Function evaluation error - end current path and start new one
+                    if (!firstPoint) {
+                        this.picking_context.stroke();
+                        this.picking_context.beginPath();
+                        firstPoint = true;
+                    }
+                }
+            }
+
+            // Stroke the final path
+            this.picking_context.stroke();
+
+        } catch (error) {
+            console.error('Error drawing function on picking canvas:', error);
+        }
+    }
+
     /**
      * Draw axes and grid
      * side-effects: Draws axes on canvas
@@ -1999,6 +2429,173 @@ class PlotEditor {
         this.context.fillText(text.text, canvas_coords.x, canvas_coords.y);
         
         this.context.restore();
+    }
+    
+    /**
+     * Get the effective plot area (excluding padding)
+     * @returns {Object} - {left, right, top, bottom} canvas coordinates
+     */
+    getEffectivePlotArea() {
+        // Calculate effective plot area (same logic as plotToCanvas but for bounds)
+        const plot_x_range = this.plot_bounds.x_max - this.plot_bounds.x_min;
+        const plot_y_range = this.plot_bounds.y_max - this.plot_bounds.y_min;
+        const aspect_ratio = this.axes_properties.aspect_ratio;
+
+        // Determine which dimension constrains the scaling
+        const canvas_aspect = this.plot_width / this.plot_height;
+        const plot_aspect = (plot_x_range * aspect_ratio) / plot_y_range;
+
+        let effective_width, effective_height;
+        if (plot_aspect > canvas_aspect) {
+            // Plot is wider, use height as constraint
+            effective_height = this.plot_height;
+            effective_width = effective_height * plot_aspect / aspect_ratio;
+        } else {
+            // Plot is taller, use width as constraint
+            effective_width = this.plot_width;
+            effective_height = effective_width * aspect_ratio / plot_aspect;
+        }
+
+        const offset_x = (this.plot_width - effective_width) / 2;
+        const offset_y = (this.plot_height - effective_height) / 2;
+
+        return {
+            left: this.canvas_padding + offset_x,
+            right: this.canvas_padding + offset_x + effective_width,
+            top: this.canvas_padding + offset_y,
+            bottom: this.canvas_padding + offset_y + effective_height
+        };
+    }
+
+    /**
+     * Draw a mathematical function using math.js
+     * @param {Object} func - Function object
+     * side-effects: Draws function on canvas with smart discontinuity detection
+     */
+    drawFunction(func) {
+        try {
+            // Create a compiled function for better performance
+            const compiledFunction = this.math.compile(func.expression);
+
+            // Determine the actual x range to plot
+            const plot_x_min = func.xMin !== null ? func.xMin : this.plot_bounds.x_min;
+            const plot_x_max = func.xMax !== null ? func.xMax : this.plot_bounds.x_max;
+
+            // Calculate number of samples based on range
+            const range = plot_x_max - plot_x_min;
+            const samples = Math.min(Math.max(Math.floor(range * 50), 100), 2000); // 50 samples per unit, min 100, max 2000
+            const step = range / samples;
+
+            this.context.strokeStyle = func.color;
+            this.context.lineWidth = func.width;
+            this.context.beginPath();
+
+            let firstPoint = true;
+            let lastValidPoint = null;
+            const maxJump = this.canvas.height * 0.2; // 20% of canvas height as discontinuity threshold
+
+            for (let i = 0; i <= samples; i++) {
+                const x = plot_x_min + i * step;
+
+                try {
+                    // Evaluate function at x
+                    const y = compiledFunction.evaluate({ x: x });
+
+                    if (isFinite(y)) {
+                        const canvasCoords = this.plotToCanvas(x, y);
+
+                        // Only draw if the point is within the effective plot area
+                        const effective_plot_area = this.getEffectivePlotArea();
+                        if (canvasCoords.x >= effective_plot_area.left &&
+                            canvasCoords.x <= effective_plot_area.right &&
+                            canvasCoords.y >= effective_plot_area.top &&
+                            canvasCoords.y <= effective_plot_area.bottom) {
+
+                            if (firstPoint) {
+                                this.context.moveTo(canvasCoords.x, canvasCoords.y);
+                                firstPoint = false;
+                            } else if (lastValidPoint !== null) {
+                                // Check for discontinuity (large jump in y)
+                                const lastCanvasCoords = this.plotToCanvas(lastValidPoint.x, lastValidPoint.y);
+                                const jump = Math.abs(canvasCoords.y - lastCanvasCoords.y);
+
+                                if (jump > maxJump) {
+                                    // Discontinuity detected - start new path
+                                    this.context.stroke();
+                                    this.context.beginPath();
+                                    this.context.moveTo(canvasCoords.x, canvasCoords.y);
+                                } else {
+                                    this.context.lineTo(canvasCoords.x, canvasCoords.y);
+                                }
+                            } else {
+                                this.context.lineTo(canvasCoords.x, canvasCoords.y);
+                            }
+
+                            lastValidPoint = { x, y };
+                        }
+                    } else {
+                        // Invalid point (Infinity, NaN) - end current path
+                        if (!firstPoint) {
+                            this.context.stroke();
+                            this.context.beginPath();
+                            firstPoint = true;
+                        }
+                        lastValidPoint = null;
+                    }
+                } catch (error) {
+                    // Function evaluation error - end current path
+                    if (!firstPoint) {
+                        this.context.stroke();
+                        this.context.beginPath();
+                        firstPoint = true;
+                    }
+                    lastValidPoint = null;
+                }
+            }
+
+            // Stroke the final path
+            this.context.stroke();
+
+        } catch (error) {
+            console.error('Error drawing function:', error);
+            // Draw a simple error indicator
+            this.context.strokeStyle = '#ff0000';
+            this.context.lineWidth = 2;
+            this.context.setLineDash([5, 5]);
+            this.context.beginPath();
+            this.context.moveTo(this.canvas.width / 2 - 50, this.canvas.height / 2);
+            this.context.lineTo(this.canvas.width / 2 + 50, this.canvas.height / 2);
+            this.context.stroke();
+            this.context.setLineDash([]);
+        }
+    }
+    
+    /**
+     * Draw an individual object based on its type
+     * @param {Object} obj - Object to draw
+     * side-effects: Draws object on canvas
+     */
+    drawObject(obj) {
+        switch (obj.type) {
+            case 'point':
+                this.drawPoint(obj);
+                break;
+            case 'line':
+                this.drawLine(obj);
+                break;
+            case 'area':
+                this.drawArea(obj);
+                break;
+            case 'text':
+                this.drawText(obj);
+                break;
+            case 'brace':
+                this.drawBrace(obj);
+                break;
+            case 'function':
+                this.drawFunction(obj);
+                break;
+        }
     }
     
     /**
@@ -2350,6 +2947,9 @@ class PlotEditor {
             case 'brace':
                 this.highlightBraceBBox(obj);
                 break;
+            case 'function':
+                this.highlightFunction(obj);
+                break;
         }
         
         this.context.setLineDash([]);
@@ -2517,7 +3117,93 @@ class PlotEditor {
         this.context.stroke();
         this.context.restore();
     }
-    
+
+    /**
+     * Highlight function with dashed outline
+     * @param {Object} func_obj - Function object to highlight
+     * side-effects: Draws dashed highlight around function
+     */
+    highlightFunction(func_obj) {
+        try {
+            // Create a compiled function for better performance
+            const compiledFunction = this.math.compile(func_obj.expression);
+
+            // Determine the actual x range to plot
+            const plot_x_min = func_obj.xMin !== null ? func_obj.xMin : this.plot_bounds.x_min;
+            const plot_x_max = func_obj.xMax !== null ? func_obj.xMax : this.plot_bounds.x_max;
+
+            // Calculate number of samples (fewer than display for performance)
+            const range = plot_x_max - plot_x_min;
+            const samples = Math.min(Math.max(Math.floor(range * 20), 50), 500); // 20 samples per unit, min 50, max 500
+            const step = range / samples;
+
+            this.context.strokeStyle = '#ff4444';
+            this.context.lineWidth = Math.max(4, func_obj.width || 2) + 2; // Make thicker than the function line
+            this.context.setLineDash([5, 5]); // Dashed pattern
+            this.context.beginPath();
+
+            let firstPoint = true;
+
+            for (let i = 0; i <= samples; i++) {
+                const x = plot_x_min + i * step;
+
+                try {
+                    // Evaluate function at x
+                    const y = compiledFunction.evaluate({ x: x });
+
+                    if (isFinite(y)) {
+                        const canvasCoords = this.plotToCanvas(x, y);
+
+                        // Only draw if the point is within the effective plot area
+                        const effective_plot_area = this.getEffectivePlotArea();
+                        if (canvasCoords.x >= effective_plot_area.left &&
+                            canvasCoords.x <= effective_plot_area.right &&
+                            canvasCoords.y >= effective_plot_area.top &&
+                            canvasCoords.y <= effective_plot_area.bottom) {
+
+                            if (firstPoint) {
+                                this.context.moveTo(canvasCoords.x, canvasCoords.y);
+                                firstPoint = false;
+                            } else {
+                                this.context.lineTo(canvasCoords.x, canvasCoords.y);
+                            }
+                        }
+                    } else {
+                        // Invalid point - end current path and start new one
+                        if (!firstPoint) {
+                            this.context.stroke();
+                            this.context.beginPath();
+                            firstPoint = true;
+                        }
+                    }
+                } catch (error) {
+                    // Function evaluation error - end current path and start new one
+                    if (!firstPoint) {
+                        this.context.stroke();
+                        this.context.beginPath();
+                        firstPoint = true;
+                    }
+                }
+            }
+
+            // Stroke the final path
+            this.context.stroke();
+
+        } catch (error) {
+            console.error('Error highlighting function:', error);
+            // Draw a simple error indicator
+            this.context.strokeStyle = '#ff0000';
+            this.context.lineWidth = 2;
+            this.context.setLineDash([5, 5]);
+            this.context.beginPath();
+            this.context.moveTo(this.canvas.width / 2 - 50, this.canvas.height / 2);
+            this.context.lineTo(this.canvas.width / 2 + 50, this.canvas.height / 2);
+            this.context.stroke();
+        }
+
+        this.context.setLineDash([]);
+    }
+
     /**
      * Update coordinate display
      * @param {Object} coords - Current coordinates
@@ -2734,6 +3420,8 @@ class PlotEditor {
                 return this.generateTextSVG(obj);
             case 'brace':
                 return this.generateBraceSVG(obj);
+            case 'function':
+                return this.generateFunctionSVG(obj);
             default:
                 return '';
         }
@@ -3397,5 +4085,100 @@ class PlotEditor {
         </div>`;
         
         properties_container.innerHTML = properties_html;
+    }
+
+    /**
+     * Generate SVG for a mathematical function
+     * @param {Object} func - Function object
+     * @returns {string} SVG path for function
+     */
+    generateFunctionSVG(func) {
+        try {
+            // Create a compiled function for better performance
+            const compiledFunction = this.math.compile(func.expression);
+
+            // Determine the actual x range to plot
+            const plot_x_min = func.xMin !== null ? func.xMin : this.plot_bounds.x_min;
+            const plot_x_max = func.xMax !== null ? func.xMax : this.plot_bounds.x_max;
+
+            // Calculate number of samples based on range
+            const range = plot_x_max - plot_x_min;
+            const samples = Math.min(Math.max(Math.floor(range * 50), 100), 2000); // 50 samples per unit, min 100, max 2000
+            const step = range / samples;
+
+            let path = '';
+            let firstPoint = true;
+            let lastValidPoint = null;
+            const maxJump = this.canvas.height * 0.2; // 20% of canvas height as discontinuity threshold
+
+            for (let i = 0; i <= samples; i++) {
+                const x = plot_x_min + i * step;
+
+                try {
+                    // Evaluate function at x
+                    const y = compiledFunction.evaluate({ x: x });
+
+                    if (isFinite(y)) {
+                        const canvasCoords = this.plotToCanvas(x, y);
+
+                        // Only include points within the effective plot area
+                        const effective_plot_area = this.getEffectivePlotArea();
+                        if (canvasCoords.x >= effective_plot_area.left &&
+                            canvasCoords.x <= effective_plot_area.right &&
+                            canvasCoords.y >= effective_plot_area.top &&
+                            canvasCoords.y <= effective_plot_area.bottom) {
+
+                            if (firstPoint) {
+                                path += `M ${canvasCoords.x} ${canvasCoords.y}`;
+                                firstPoint = false;
+                            } else if (lastValidPoint !== null) {
+                                // Check for discontinuity (large jump in y)
+                                const lastCanvasCoords = this.plotToCanvas(lastValidPoint.x, lastValidPoint.y);
+                                const jump = Math.abs(canvasCoords.y - lastCanvasCoords.y);
+
+                                if (jump > maxJump) {
+                                    // Discontinuity detected - start new path
+                                    path += `" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>
+            <path d="M ${canvasCoords.x} ${canvasCoords.y}`;
+                                } else {
+                                    path += ` L ${canvasCoords.x} ${canvasCoords.y}`;
+                                }
+                            } else {
+                                path += ` L ${canvasCoords.x} ${canvasCoords.y}`;
+                            }
+
+                            lastValidPoint = { x, y };
+                        }
+                    } else {
+                        // Invalid point - end current path
+                        if (!firstPoint) {
+                            path += `" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>
+            <path d="`;
+                            firstPoint = true;
+                        }
+                        lastValidPoint = null;
+                    }
+                } catch (error) {
+                    // Function evaluation error - end current path
+                    if (!firstPoint) {
+                        path += `" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>
+            <path d="`;
+                        firstPoint = true;
+                    }
+                    lastValidPoint = null;
+                }
+            }
+
+            // Close the final path
+            if (!firstPoint) {
+                path += `" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>`;
+            }
+
+            return path;
+
+        } catch (error) {
+            console.error('Error generating function SVG:', error);
+            return '';
+        }
     }
 }

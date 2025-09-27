@@ -36,6 +36,7 @@ function initializePlotEditor() {
  */
 function setupUIEventListeners() {
     setupToolButtons();
+    setupFunctionPanel();
     setupAxesControls();
     setupTopToolbar();
     setupKeyboardShortcuts();
@@ -58,6 +59,61 @@ function setupToolButtons() {
             setActiveTool(this);
         });
     });
+}
+
+/**
+ * Set up function panel event listeners
+ * side-effects: Adds event listeners for function panel
+ */
+function setupFunctionPanel() {
+    const function_panel = document.getElementById('function-panel');
+    const function_tool_btn = document.getElementById('tool-function');
+    const add_function_btn = document.getElementById('add-function');
+
+    // Show/hide function panel when function tool is selected
+    if (function_tool_btn) {
+        function_tool_btn.addEventListener('click', function() {
+            const is_active = this.classList.contains('active');
+            if (is_active) {
+                function_panel.style.display = 'block';
+            } else {
+                function_panel.style.display = 'none';
+            }
+        });
+    }
+
+    // Add function button click handler
+    if (add_function_btn) {
+        add_function_btn.addEventListener('click', function() {
+            const expression = document.getElementById('function-expression').value.trim();
+            const x_min_input = document.getElementById('function-x-min').value.trim();
+            const x_max_input = document.getElementById('function-x-max').value.trim();
+            const color = document.getElementById('function-color').value;
+            const width = parseInt(document.getElementById('function-width').value);
+
+            // Parse x_min and x_max, handling infinity
+            let x_min, x_max;
+            if (x_min_input === '-∞' || x_min_input === '-inf' || x_min_input === '') {
+                x_min = null; // Will use axes bounds
+            } else {
+                x_min = parseFloat(x_min_input);
+            }
+
+            if (x_max_input === '∞' || x_max_input === 'inf' || x_max_input === '') {
+                x_max = null; // Will use axes bounds
+            } else {
+                x_max = parseFloat(x_max_input);
+            }
+
+            if (expression) {
+                g_plot_editor.addFunction(expression, x_min, x_max, color, width);
+                // Clear the form
+                document.getElementById('function-expression').value = '';
+            } else {
+                alert('Please enter a valid function expression.');
+            }
+        });
+    }
 }
 
 /**
@@ -169,9 +225,29 @@ function setupKeyboardShortcuts() {
                     selectTool('text');
                     setActiveToolByName('text');
                     break;
+                case '7':
+                    event.preventDefault();
+                    selectTool('function');
+                    setActiveToolByName('function');
+                    break;
             }
         }
     });
+}
+
+/**
+ * Update tool panel visibility based on selected tool
+ * @param {string} tool_name - Name of selected tool
+ * side-effects: Shows/hides tool-specific panels
+ */
+function updateToolPanelVisibility(tool_name) {
+    const function_panel = document.getElementById('function-panel');
+
+    if (tool_name === 'function') {
+        function_panel.style.display = 'block';
+    } else {
+        function_panel.style.display = 'none';
+    }
 }
 
 /**
@@ -182,9 +258,10 @@ function setupKeyboardShortcuts() {
 function selectTool(tool_name) {
     assert(typeof tool_name === 'string', `Expected tool_name to be string, got ${typeof tool_name}`);
     assert(g_plot_editor !== null, "Expected plot editor to be initialized, got null");
-    
+
     g_plot_editor.setTool(tool_name);
     updateCanvasCursor(tool_name);
+    updateToolPanelVisibility(tool_name);
 }
 
 /**
@@ -211,6 +288,9 @@ function updateCanvasCursor(tool_name) {
             break;
         case 'brace':
             canvas_element.style.cursor = 'crosshair';
+            break;
+        case 'function':
+            canvas_element.style.cursor = 'default';
             break;
         default:
             canvas_element.style.cursor = 'default';

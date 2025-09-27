@@ -14,10 +14,12 @@ A comprehensive HTML5 Canvas-based visual plot editor that allows users to creat
 1. **Points**: Add circular points with customizable size, color, text labels, and coordinate display
 2. **Lines**: Draw straight lines between two points
 3. **Filled Areas**: Create rectangular filled regions
-  4. **Curly Braces**: Add mathematical notation braces with adjustable direction (mirror option) and style:
-     - **Smooth**: Simple curved brace style
-     - **Traditional**: Authentic mathematical brace with quarter circles and straight segments
-5. **Text Annotations**: Add labeled text at any position
+4. **Mathematical Functions**: Plot mathematical expressions with automatic discontinuity detection using math.js
+5. **Curly Braces**: Add mathematical notation braces with adjustable direction (mirror option) and style:
+   - **Smooth**: Simple curved brace style
+   - **Traditional**: Authentic mathematical brace with quarter circles and straight segments
+   - **45° (No Overlap)**: Precise arc-based style with C1 continuity
+6. **Text Annotations**: Add labeled text at any position
 
 ### User Interface
 - **Tool Panel**: Select different drawing tools
@@ -46,6 +48,7 @@ A comprehensive HTML5 Canvas-based visual plot editor that allows users to creat
 - **Area Tool** (Ctrl+4): Click and drag to create filled rectangles
 - **Brace Tool** (Ctrl+5): Click and drag to draw braces between two points
 - **Text Tool** (Ctrl+6): Click to add text annotations
+- **Function Tool** (Ctrl+7): Plot mathematical expressions with automatic discontinuity detection
 
 #### Axes Configuration
 - **X/Y Axis Labels**: Set custom labels for axes
@@ -66,6 +69,10 @@ When an object is selected, the properties panel shows:
     - **Smooth**: Simple curved brace style
     - **Traditional**: Mathematical brace with quarter circles and straight line segments
     - **Width**: Adjustable brace thickness (distance from the connecting line)
+  - **Function Options**: Expression input, X range specification, color, and line width:
+    - **Smart Discontinuity Detection**: Automatically detects and handles function discontinuities (like 1/x)
+    - **High-Performance Rendering**: Uses math.js for fast, accurate function evaluation
+    - **SVG Export Support**: Functions are included in exported SVG files
 
 #### Object List
 The object list panel allows you to:
