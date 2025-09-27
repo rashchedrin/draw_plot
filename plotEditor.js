@@ -873,7 +873,7 @@ class PlotEditor {
                 y2: start_coords.y + 3,
                 color: '#333333',
                 mirrored: false,
-                style: 'smooth', // smooth or traditional
+                style: '45deg', // 45deg, smooth, or traditional
                 elevation: default_elevation,
                 z_index: 0
             };
@@ -893,7 +893,7 @@ class PlotEditor {
                 y2: end_coords.y,
                 color: '#333333',
                 mirrored: false,
-                style: 'smooth', // smooth or traditional
+                style: '45deg', // 45deg, smooth, or traditional
                 elevation: default_elevation,
                 z_index: 0
             };
@@ -2007,8 +2007,8 @@ class PlotEditor {
      * side-effects: Draws brace on canvas
      */
     drawBrace(brace) {
-        // Default to smooth style for backward compatibility
-        const brace_style = brace.style || 'smooth';
+        // Default to 45deg style for new braces
+        const brace_style = brace.style || '45deg';
         
         if (brace_style === 'traditional') {
             this.drawTraditionalBrace(brace);
@@ -2267,9 +2267,9 @@ class PlotEditor {
      * side-effects: Draws preview brace on canvas
      */
     drawBracePreview(start, end) {
-        // Create a temporary brace object for preview (using smooth style)
+        // Create a temporary brace object for preview (using 45deg style)
         const length = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-        const default_width = 15; // Default width set to 15
+        const default_elevation = 15; // Default elevation set to 15
         
         const temp_brace = {
             x1: start.x,
@@ -2278,16 +2278,16 @@ class PlotEditor {
             y2: end.y,
             color: '#333333',
             mirrored: false,
-            style: 'smooth',
-            width: default_width
+            style: '45deg',
+            elevation: default_elevation
         };
         
         // Save current context state
         this.context.save();
         this.context.setLineDash([5, 5]);
         
-        // Draw preview using smooth style
-        this.drawSmoothBrace(temp_brace);
+        // Draw preview using 45deg style
+        this.drawBrace(temp_brace);
         
         // Restore context state
         this.context.restore();
@@ -2821,7 +2821,7 @@ class PlotEditor {
         const start_coords = this.plotToCanvas(brace.x1, brace.y1);
         const end_coords = this.plotToCanvas(brace.x2, brace.y2);
         
-        const brace_style = brace.style || 'smooth';
+        const brace_style = brace.style || '45deg';
         
         if (brace_style === 'traditional') {
             return this.generateTraditionalBraceSVG(brace, start_coords, end_coords);
@@ -3374,9 +3374,9 @@ class PlotEditor {
                     <div class="property-row">
                         <label>Style:</label>
                         <select onchange="plotEditor.updateObjectProperty('style', this.value)" style="width: 100%;">
-                            <option value="smooth" ${(this.selected_object.style || 'smooth') === 'smooth' ? 'selected' : ''}>Smooth</option>
-                            <option value="traditional" ${(this.selected_object.style || 'smooth') === 'traditional' ? 'selected' : ''}>Traditional</option>
-                            <option value="45deg" ${(this.selected_object.style || 'smooth') === '45deg' ? 'selected' : ''}>45° (No Overlap)</option>
+                            <option value="smooth" ${(this.selected_object.style || '45deg') === 'smooth' ? 'selected' : ''}>Smooth</option>
+                            <option value="traditional" ${(this.selected_object.style || '45deg') === 'traditional' ? 'selected' : ''}>Traditional</option>
+                            <option value="45deg" ${(this.selected_object.style || '45deg') === '45deg' ? 'selected' : ''}>45° (No Overlap)</option>
                         </select>
                     </div>
                     <div class="property-row">
