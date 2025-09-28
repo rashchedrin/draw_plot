@@ -4216,7 +4216,8 @@ class PlotEditor {
             const samples = Math.min(Math.max(Math.floor(range * 50), 100), 2000); // 50 samples per unit, min 100, max 2000
             const step = range / samples;
 
-            let path = '';
+            let paths = [];
+            let currentPath = '';
             let firstPoint = true;
             let lastValidPoint = null;
             const maxJump = this.canvas.height * 0.2; // 20% of canvas height as discontinuity threshold
@@ -4239,7 +4240,7 @@ class PlotEditor {
                             canvasCoords.y <= effective_plot_area.bottom) {
 
                             if (firstPoint) {
-                                path += `M ${canvasCoords.x} ${canvasCoords.y}`;
+                                currentPath += `M ${canvasCoords.x} ${canvasCoords.y}`;
                                 firstPoint = false;
                             } else if (lastValidPoint !== null) {
                                 // Check for discontinuity (large jump in y)
@@ -4247,44 +4248,46 @@ class PlotEditor {
                                 const jump = Math.abs(canvasCoords.y - lastCanvasCoords.y);
 
                                 if (jump > maxJump) {
-                                    // Discontinuity detected - start new path
-                                    path += `" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>
-            <path d="M ${canvasCoords.x} ${canvasCoords.y}`;
+                                    // Discontinuity detected - finish current path and start new one
+                                    if (currentPath) {
+                                        paths.push(`<path d="${currentPath}" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>`);
+                                        currentPath = `M ${canvasCoords.x} ${canvasCoords.y}`;
+                                    }
                                 } else {
-                                    path += ` L ${canvasCoords.x} ${canvasCoords.y}`;
+                                    currentPath += ` L ${canvasCoords.x} ${canvasCoords.y}`;
                                 }
                             } else {
-                                path += ` L ${canvasCoords.x} ${canvasCoords.y}`;
+                                currentPath += ` L ${canvasCoords.x} ${canvasCoords.y}`;
                             }
 
                             lastValidPoint = { x, y };
                         }
                     } else {
-                        // Invalid point - end current path
-                        if (!firstPoint) {
-                            path += `" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>
-            <path d="`;
+                        // Invalid point (Infinity, NaN) - finish current path
+                        if (currentPath) {
+                            paths.push(`<path d="${currentPath}" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>`);
+                            currentPath = '';
                             firstPoint = true;
                         }
                         lastValidPoint = null;
                     }
                 } catch (error) {
-                    // Function evaluation error - end current path
-                    if (!firstPoint) {
-                        path += `" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>
-            <path d="`;
+                    // Function evaluation error - finish current path
+                    if (currentPath) {
+                        paths.push(`<path d="${currentPath}" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>`);
+                        currentPath = '';
                         firstPoint = true;
                     }
                     lastValidPoint = null;
                 }
             }
 
-            // Close the final path
-            if (!firstPoint) {
-                path += `" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>`;
+            // Finish the final path
+            if (currentPath) {
+                paths.push(`<path d="${currentPath}" stroke="${func.color}" stroke-width="${func.width}" fill="none"/>`);
             }
 
-            return path;
+            return paths.join('\n            ');
 
         } catch (error) {
             console.error('Error generating function SVG:', error);
